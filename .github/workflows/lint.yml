@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: ['15.12.1']
+        node-version: ['20.10.0']
     defaults:
       run:
         working-directory: .
