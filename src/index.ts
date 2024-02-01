@@ -28,15 +28,15 @@ export interface QueryOptions {
 
 export class MongooseQueryParser {
   private readonly builtInCaster = {
-    string: val => String(val),
-    date: val => {
+    string: (val) => String(val),
+    date: (val) => {
       const dt = toDate(val, this.options.dateFormat);
       if (dt.isValid) {
         return dt.toJSDate();
       } else {
         throw new Error(`Invalid date string: [${val}]`);
       }
-    }
+    },
   };
 
   private readonly operators = [
@@ -104,13 +104,18 @@ export class MongooseQueryParser {
     }
 
     // Apply casters per params
-    if (key && options.castParams && options.castParams[key] && casters[options.castParams[key]]) {
+    if (
+      key &&
+      options.castParams &&
+      options.castParams[key] &&
+      casters[options.castParams[key]]
+    ) {
       return casters[options.castParams[key]](value);
     }
 
     // cast array
     if (value.includes(',')) {
-      return value.split(',').map(val => me.parseValue(val, key));
+      return value.split(',').map((val) => me.parseValue(val, key));
     }
 
     // Apply type casting for Number, RegExp, Date, Boolean and null
@@ -149,14 +154,16 @@ export class MongooseQueryParser {
 
   private excludeFilterKeys(obj: any, blacklist: String[]) {
     for (const i in obj) {
-      if (!obj.hasOwnProperty(i)) { continue; }
+      if (!obj.hasOwnProperty(i)) {
+        continue;
+      }
       if (typeof obj[i] == 'object') {
         this.excludeFilterKeys(obj[i], blacklist);
       } else if (blacklist.indexOf(i) !== -1) {
         delete obj[i];
       }
     }
-    return _.isArray(obj) ? _.remove(obj, el => _.isEmpty(el)) : obj;
+    return _.isArray(obj) ? _.remove(obj, (el) => _.isEmpty(el)) : obj;
   }
 
   private castFilter(filter, params) {
@@ -164,14 +171,24 @@ export class MongooseQueryParser {
     const parsedFilter = filter ? this.parseFilter(filter) : {};
 
     // filter out blacklisted keys in JSON filter query
-    const subsetParsedFilter = this.excludeFilterKeys(parsedFilter, options.blacklist);
+    const subsetParsedFilter = this.excludeFilterKeys(
+      parsedFilter,
+      options.blacklist
+    );
 
     return Object.keys(params)
-      .map(val => {
+      .map((val) => {
         const join = params[val] ? `${val}=${params[val]}` : val;
         // Separate key, operators and value
-        const [, prefix, key, op, value] = join.match(/(!?)([^><!=]+)([><]=?|!?=|)(.*)/);
-        return { prefix, key, op: this.parseOperator(op), value: this.parseValue(value, key) };
+        const [, prefix, key, op, value] = join.match(
+          /(!?)([^><!=]+)([><]=?|!?=|)(.*)/
+        );
+        return {
+          prefix,
+          key,
+          op: this.parseOperator(op),
+          value: this.parseValue(value, key),
+        };
       })
       .filter(({ key }) => options.blacklist.indexOf(key) === -1)
       .reduce((result, { prefix, key, op, value }) => {
@@ -238,8 +255,8 @@ export class MongooseQueryParser {
       From the MongoDB documentation:
       "A projection cannot contain both include and exclude specifications, except for the exclusion of the _id field."
     */
-    const hasMixedValues = Object.keys(fields)
-      .reduce((set, key) => {
+    const hasMixedValues =
+      Object.keys(fields).reduce((set, key) => {
         if (key !== '_id') {
           set.add(fields[key]);
         }
@@ -247,12 +264,11 @@ export class MongooseQueryParser {
       }, new Set()).size > 1;
 
     if (hasMixedValues) {
-      Object.keys(fields)
-        .forEach(key => {
-          if (fields[key] === 1) {
-            delete fields[key];
-          }
-        });
+      Object.keys(fields).forEach((key) => {
+        if (fields[key] === 1) {
+          delete fields[key];
+        }
+      });
     }
 
     return fields;
@@ -280,7 +296,7 @@ export class MongooseQueryParser {
     const buildPopulate = (prop: string, pObj) => {
       const [path, select] = prop.split('.', 2);
       if (!pObj) {
-        pObj = populates.find(p => p.path == path);
+        pObj = populates.find((p) => p.path == path);
         if (!pObj) {
           // create new populate query object
           pObj = { path };
@@ -294,7 +310,7 @@ export class MongooseQueryParser {
         pObj = pObj.populate;
       }
       if (select) {
-        pObj.select = pObj.select ? (pObj.select + ' ' + select) : select;
+        pObj.select = pObj.select ? pObj.select + ' ' + select : select;
       }
       return pObj;
     };
@@ -325,12 +341,26 @@ export class MongooseQueryParser {
   private parseUnaries(unaries, values = { plus: 1, minus: -1 }) {
     const unariesAsArray = _.isString(unaries)
       ? unaries.split(',')
-      : unaries;
+      : Array.isArray(unaries)
+      ? unaries
+      : Object.keys(unaries).map(
+          (key) => `${unaries[key] === '-1' ? '-' : ''}${key}`
+        );
 
     return unariesAsArray
-      .map(x => x.match(/^(\+|-)?(.*)/))
+      .map((x) => {
+        const match = x.match(/^(\+|-)?(.*)/);
+        if (!match) {
+          throw new Error(`Invalid unary expression: ${x}`);
+        }
+        return match;
+      })
       .reduce((result, [, val, key]) => {
-        result[key.trim()] = val === '-' ? values.minus : values.plus;
+        key = key.trim();
+        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) {
+          throw new Error(`Invalid property name: ${key}`);
+        }
+        result[key] = val === '-' ? values.minus : values.plus;
         return result;
       }, {});
   }
@@ -372,45 +402,54 @@ export class MongooseQueryParser {
         if (match) {
           val = _.property(match[1])(context);
           if (val === undefined) {
-            throw new Error(`No predefined query found for the provided reference [${match[1]}]`);
+            throw new Error(
+              `No predefined query found for the provided reference [${match[1]}]`
+            );
           }
         }
         return { match: !!match, val: val };
       };
       const _transform = (obj) => {
-        return _.reduce(obj, (prev, curr, key) => {
-          let val = undefined, match = undefined;
-          if (_.isString(key)) {
-            ({ match, val } = _match(key));
-            if (match) {
-              if (_.has(curr, '$exists')) {
-                // 1). as a key: {'${qry}': {$exits: true}} => {${qry object}}
-                return _.merge(prev, val);
-              } else if (_.isString(val)) {
-                // 1). as a key: {'${qry}': 'something'} => {'${qry object}': 'something'}
-                key = val;
-              } else {
-                throw new Error(`Invalid query string at ${key}`);
+        return _.reduce(
+          obj,
+          (prev, curr, key) => {
+            let val = undefined,
+              match = undefined;
+            if (_.isString(key)) {
+              ({ match, val } = _match(key));
+              if (match) {
+                if (_.has(curr, '$exists')) {
+                  // 1). as a key: {'${qry}': {$exits: true}} => {${qry object}}
+                  return _.merge(prev, val);
+                } else if (_.isString(val)) {
+                  // 1). as a key: {'${qry}': 'something'} => {'${qry object}': 'something'}
+                  key = val;
+                } else {
+                  throw new Error(`Invalid query string at ${key}`);
+                }
               }
             }
-          }
-          if (_.isString(curr)) {
-            ({ match, val } = _match(curr));
-            if (match) {
-              _.isNumber(key)
-                ? (prev as any).push(val)  // 3). as an item of array: ['${qry}', ...] => [${qry object}, ...]
-                : (prev[key] = val);  // 2). as a value: {prop: '${qry}'} => {prop: ${qry object}}
-              return prev;
+            if (_.isString(curr)) {
+              ({ match, val } = _match(curr));
+              if (match) {
+                _.isNumber(key)
+                  ? (prev as any).push(val) // 3). as an item of array: ['${qry}', ...] => [${qry object}, ...]
+                  : (prev[key] = val); // 2). as a value: {prop: '${qry}'} => {prop: ${qry object}}
+                return prev;
+              }
             }
-          }
-          if (_.isObject(curr) && !_.isRegExp(curr) && !_.isDate(curr)) {
-            // iterate all props & keys recursively
-            _.isNumber(key) ? (prev as any).push(_transform(curr)) : (prev[key] = _transform(curr));
-          } else {
-            _.isNumber(key) ? (prev as any).push(curr) : (prev[key] = curr);
-          }
-          return prev;
-        }, _.isArray(obj) ? [] : {});
+            if (_.isObject(curr) && !_.isRegExp(curr) && !_.isDate(curr)) {
+              // iterate all props & keys recursively
+              _.isNumber(key)
+                ? (prev as any).push(_transform(curr))
+                : (prev[key] = _transform(curr));
+            } else {
+              _.isNumber(key) ? (prev as any).push(curr) : (prev[key] = curr);
+            }
+            return prev;
+          },
+          _.isArray(obj) ? [] : {}
+        );
       };
       return _transform(query);
     }
