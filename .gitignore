@@ -65,3 +65,5 @@ typings/
 lib/
 **/*.map
 
+# MacOS files
+.DS_Store

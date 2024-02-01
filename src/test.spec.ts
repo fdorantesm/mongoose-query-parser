@@ -190,4 +190,32 @@ class Tester {
     });
     assert.deepEqual(parsed.filter['$and'][1], { customer: 'VDF' });
   }
+
+  @test('should parse sort multiple fields')
+  multipleSortParse() {
+    const parser = new MongooseQueryParser();
+    const qry = `sort=-date,age`;
+    const parsed = parser.parse(qry);
+    assert.exists(parsed.sort);
+    assert.equal(parsed.sort.date, -1);
+    assert.equal(parsed.sort.age, 1);
+  }
+
+  @test('should parse sort with only one field')
+  sortParse() {
+    const parser = new MongooseQueryParser();
+    const qry = `sort=-date`;
+    const parsed = parser.parse(qry);
+    assert.exists(parsed.sort);
+    assert.equal(parsed.sort.date, -1);
+  }
+
+  @test('should fail to parse invalid sort')
+  sortObjectParse() {
+    const parser = new MongooseQueryParser();
+    const qry = `sort={"date":-1, "age":1}`;
+    assert.throws(() => {
+      parser.parse(qry);
+    }, /Invalid property name: .+/);
+  }
 }
