@@ -10,7 +10,8 @@
     "prepublishOnly": "npm run compile",
     "test": "mocha --config '.mocha.yml'",
     "lint": "tslint src/**/*.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "npm run build"
   },
   "repository": {
     "type": "git",
